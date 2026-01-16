@@ -92,8 +92,12 @@ def save_settings():
 
 settings = load_settings()
 
+
+
+
+
 # -------------------------------------------------
-# SAFE AUTO-JUMP (FORWARD ONLY)
+# SAFE AUTO-JUMP (SHIFT+TAB SAFE)
 # -------------------------------------------------
 _last_len = {}
 
@@ -103,38 +107,89 @@ def jump_if_complete(var, widget, size, key):
     _last_len[key] = len(cur)
     if cur.isdigit() and len(cur) == size and prev < size:
         widget.focus()
-        
-        
-        
-def smart_day_month_jump(var, next_widget):
-    """
-    If first digit is 4–9 → jump immediately
-    If first digit is 0–3 → wait for second digit
-    """
+
+
+def smart_day_month_jump(event, var, next_widget):
+    # Do not auto-jump when Shift+Tab is used
+    if event.state & 0x1:
+        return
+
     val = var.get()
     if not val.isdigit():
         return
+
     if len(val) == 1 and val[0] in "456789":
         next_widget.focus()
     elif len(val) >= 2:
         next_widget.focus()
-        
-        
-def smart_month_jump(var, next_widget):
-    """
-    Month logic:
-    0–2 → wait
-    3–9 → jump immediately
-    2 digits → jump
-    """
+
+
+def smart_month_jump(event, var, next_widget):
+    # Do not interfere with Shift+Tab
+    if event.state & 0x1:
+        return
+
     val = var.get()
     if not val.isdigit():
         return
+
+    # Month rules:
+    # 0 → wait (01–09)
+    # 1 → wait (10–12)
+    # 2–9 → jump immediately
+    if len(val) == 1:
+        if val[0] in "23456789":
+            next_widget.focus()
+    elif len(val) >= 2:
+        next_widget.focus()
+
+
+def smart_hour_jump(event, var, next_widget):
+    if event.state & 0x1:
+        return
+
+    val = var.get()
+    if not val.isdigit():
+        return
+
     if len(val) == 1 and val[0] in "3456789":
         next_widget.focus()
     elif len(val) >= 2:
         next_widget.focus()
-    
+
+
+
+
+
+
+
+
+
+
+
+
+def smart_minute_jump(event, var, next_widget):
+    if event.state & 0x1:
+        return
+
+    val = var.get()
+    if not val.isdigit():
+        return
+
+    if len(val) == 1 and val[0] in "6789":
+        next_widget.focus()
+    elif len(val) >= 2:
+        next_widget.focus()
+
+	
+	
+	
+	
+	
+	
+	
+	
+	
 
 
 # -------------------------------------------------
@@ -161,52 +216,14 @@ def open_output_folder():
 
 
 
-def smart_hour_jump(var, next_widget):
-    """
-    HOURS LOGIC (0–23):
-    - If first digit is 3–9 → jump immediately
-    - If first digit is 0–2 → wait for second digit
-    - If two digits entered → jump
-    """
-    val = var.get()
-
-    # Only act if input is numeric
-    if not val.isdigit():
-        return
-
-    # If user typed only ONE digit
-    if len(val) == 1:
-        # 3–9 cannot start a valid 2-digit hour (max 23)
-        if val[0] in "3456789":
-            next_widget.focus()
-
-    # If TWO digits are entered, always jump
-    elif len(val) >= 2:
-        next_widget.focus()
 
 
-def smart_minute_jump(var, next_widget):
-    """
-    MINUTES / SECONDS LOGIC (0–59):
-    - If first digit is 6–9 → jump immediately
-    - If first digit is 0–5 → wait for second digit
-    - If two digits entered → jump
-    """
-    val = var.get()
 
-    # Only act if input is numeric
-    if not val.isdigit():
-        return
 
-    # If user typed only ONE digit
-    if len(val) == 1:
-        # 6–9 cannot start a valid 2-digit minute/second
-        if val[0] in "6789":
-            next_widget.focus()
 
-    # If TWO digits are entered, always jump
-    elif len(val) >= 2:
-        next_widget.focus()
+
+
+
 
 
 
@@ -320,13 +337,16 @@ def calculate_and_save():
             utc.hour + utc.minute / 60 + utc.second / 3600
         )
 
-        lat = int(lat_d.get()) + int(lat_m.get()) / 60
-        if lat_dir.get().strip().upper() == "S":
+        # GOOGLE MAPS FORMAT LATITUDE
+        lat = float(f"{lat_deg.get()}.{lat_frac.get() or '0'}")
+        if lat_sign.get() == "-":
             lat = -lat
 
-        lon = int(lon_d.get()) + int(lon_m.get()) / 60
-        if lon_dir.get().strip().upper() == "W":
+        # GOOGLE MAPS FORMAT LONGITUDE
+        lon = float(f"{lon_deg.get()}.{lon_frac.get() or '0'}")
+        if lon_sign.get() == "-":
             lon = -lon
+
 
 
 
@@ -429,14 +449,59 @@ frame = left_frame
 
 
 
+
+
+
+
+
+
+
 # VARIABLES
 name_var = tk.StringVar()
-dd_var = tk.StringVar(); mm_var = tk.StringVar(); yyyy_var = tk.StringVar()
-hh_var = tk.StringVar(); min_var = tk.StringVar(); sec_var = tk.StringVar(value="00")
-lat_d = tk.StringVar(value="13"); lat_m = tk.StringVar(value="31")
-lon_d = tk.StringVar(value="77"); lon_m = tk.StringVar(value="13")
-tz_sign = tk.StringVar(value="+"); tz_h = tk.StringVar(value="05"); tz_m = tk.StringVar(value="30")
+
+# DATE
+dd_var = tk.StringVar()
+mm_var = tk.StringVar()
+yyyy_var = tk.StringVar()
+
+# TIME
+hh_var = tk.StringVar()
+min_var = tk.StringVar()
+sec_var = tk.StringVar(value="00")
+
+
+
+# GOOGLE MAPS FRIENDLY LATITUDE
+# Default: +13.318833 (HOME LOCATION)
+lat_sign = tk.StringVar(value="+")
+lat_deg  = tk.StringVar(value="13")
+lat_frac = tk.StringVar(value="318833")
+
+# GOOGLE MAPS FRIENDLY LONGITUDE
+# Default: +77.132609 (HOME LOCATION)
+lon_sign = tk.StringVar(value="+")
+lon_deg  = tk.StringVar(value="77")
+lon_frac = tk.StringVar(value="132609")
+
+
+
+
+
+
+# TIME ZONE
+tz_sign = tk.StringVar(value="+")
+tz_h = tk.StringVar(value="05")
+tz_m = tk.StringVar(value="30")
 dst_var = tk.StringVar(value="0")
+
+
+
+
+
+
+
+
+
 
 ayan_vars = {
     "Lahiri": tk.IntVar(value=1),
@@ -482,9 +547,9 @@ e_yy = ttk.Entry(df, width=10, textvariable=yyyy_var)
 e_dd.pack(side="left", padx=4)
 e_mm.pack(side="left", padx=4)
 e_yy.pack(side="left", padx=4)
-e_dd.bind("<KeyRelease>", lambda e: smart_day_month_jump(dd_var, e_mm))
-e_mm.bind("<KeyRelease>", lambda e: smart_month_jump(mm_var, e_yy))
-e_yy.bind("<KeyRelease>", lambda e: jump_if_complete(yyyy_var, e_hh, 4, "yy"))
+
+
+
 
 
 
@@ -497,12 +562,19 @@ e_sc = ttk.Entry(tf, width=6, textvariable=sec_var)
 e_hh.pack(side="left", padx=4)
 e_mn.pack(side="left", padx=4)
 e_sc.pack(side="left", padx=4)
-# Smart jump for HOURS (0–23)
-# HOURS → MINUTES (0–23 smart jump)
-e_hh.bind("<KeyRelease>", lambda e: smart_hour_jump(hh_var, e_mn))
 
-# MINUTES → LATITUDE DEGREE (0–59 smart jump)
-e_mn.bind("<KeyRelease>", lambda e: smart_minute_jump(min_var, e_lat_d))
+
+
+# -------------------------------
+# SAFE KEY BINDINGS (AFTER WIDGET CREATION)
+# -------------------------------
+e_dd.bind("<KeyRelease>", lambda e: smart_day_month_jump(e, dd_var, e_mm))
+e_mm.bind("<KeyRelease>", lambda e: smart_month_jump(e, mm_var, e_yy))
+e_yy.bind("<KeyRelease>", lambda e: jump_if_complete(yyyy_var, e_hh, 4, "yy"))
+
+e_hh.bind("<KeyRelease>", lambda e: smart_hour_jump(e, hh_var, e_mn))
+e_mn.bind("<KeyRelease>", lambda e: smart_minute_jump(e, min_var, e_lat_deg))
+
 
 
 
@@ -523,36 +595,40 @@ ttk.Entry(uf, width=6, textvariable=dst_var).pack(side="left")
 
 
 
-# LAT / LON WITH MANUAL N / S / E / W ENTRY
 
-ttk.Label(frame, text="Latitude (Deg  Min  N/S)").pack(anchor="w", pady=(10,4))
+# -------------------------------------------------
+# LATITUDE / LONGITUDE — GOOGLE MAPS FORMAT
+# (+ / −  DEG  FRACTION)
+# Example:
+# + | 13 | 318833  → 13.318833
+# - | 77 | 13      → -77.13
+# -------------------------------------------------
+
+# LATITUDE
+ttk.Label(frame, text="Latitude (+ / −   Deg   Fraction)").pack(anchor="w", pady=(10,4))
 lf = ttk.Frame(frame); lf.pack(anchor="w")
 
-lat_dir = tk.StringVar(value="N")
+e_lat_sign = ttk.Entry(lf, width=4, textvariable=lat_sign, justify="center")
+e_lat_deg  = ttk.Entry(lf, width=8, textvariable=lat_deg)
+e_lat_frac = ttk.Entry(lf, width=12, textvariable=lat_frac)
 
-e_lat_d = ttk.Entry(lf, width=8, textvariable=lat_d)
-e_lat_m = ttk.Entry(lf, width=8, textvariable=lat_m)
-e_lat_dir = ttk.Entry(lf, width=4, textvariable=lat_dir)
-
-e_lat_d.pack(side="left", padx=4)
-e_lat_m.pack(side="left", padx=4)
-e_lat_dir.pack(side="left", padx=6)
+e_lat_sign.pack(side="left", padx=4)
+e_lat_deg.pack(side="left", padx=4)
+e_lat_frac.pack(side="left", padx=4)
 
 
-
-
-ttk.Label(frame, text="Longitude (Deg  Min  E/W)").pack(anchor="w", pady=(10,4))
+# LONGITUDE
+ttk.Label(frame, text="Longitude (+ / −   Deg   Fraction)").pack(anchor="w", pady=(10,4))
 lof = ttk.Frame(frame); lof.pack(anchor="w")
 
-lon_dir = tk.StringVar(value="E")
+e_lon_sign = ttk.Entry(lof, width=4, textvariable=lon_sign, justify="center")
+e_lon_deg  = ttk.Entry(lof, width=8, textvariable=lon_deg)
+e_lon_frac = ttk.Entry(lof, width=12, textvariable=lon_frac)
 
-e_lon_d = ttk.Entry(lof, width=8, textvariable=lon_d)
-e_lon_m = ttk.Entry(lof, width=8, textvariable=lon_m)
-e_lon_dir = ttk.Entry(lof, width=4, textvariable=lon_dir)
+e_lon_sign.pack(side="left", padx=4)
+e_lon_deg.pack(side="left", padx=4)
+e_lon_frac.pack(side="left", padx=4)
 
-e_lon_d.pack(side="left", padx=4)
-e_lon_m.pack(side="left", padx=4)
-e_lon_dir.pack(side="left", padx=6)
 
 
 
