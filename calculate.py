@@ -195,6 +195,33 @@ def smart_minute_jump(event, var, next_widget):
 # -------------------------------------------------
 # HELPERS
 # -------------------------------------------------
+
+
+def get_planet_lon_and_retro(jd, code, flags):
+    """
+    INDIAN / VEDIC RETRO (VAKRI)
+
+    Rule used by Indian astrology apps:
+    If SIDEREAL longitude today < SIDEREAL longitude yesterday
+    → planet is Vakri (Retrograde)
+    """
+
+    # Today's sidereal longitude
+    lon_today = swe.calc_ut(jd, code, flags)[0][0] % 360
+
+    # Yesterday's sidereal longitude
+    lon_yesterday = swe.calc_ut(jd - 1.0, code, flags)[0][0] % 360
+
+    # Normalize movement (handle 360° wrap safely)
+    delta = (lon_today - lon_yesterday + 360) % 360
+
+    # If movement is backward in zodiac → Vakri
+    is_retro = delta > 180
+
+    return lon_today, is_retro
+
+
+
 def sanitize_filename(name):
     return re.sub(r"[^\w]+", "_", name.strip()) or "kundali"
 
@@ -246,49 +273,76 @@ def get_ayanamsha():
 # -------------------------------------------------
 
 
+
+
+
+
+
+
+
+
+
+
+
 def calculate_all_ayanamshas(jd, lat, lon):
-    results = {}
+	results = {}
 
-    for name, sid_mode in AYANAMSHA_MAP.items():
-        swe.set_sid_mode(sid_mode)
-        ayan = swe.get_ayanamsa(jd)
+	for name, sid_mode in AYANAMSHA_MAP.items():
+		swe.set_sid_mode(sid_mode)
+		ayan = swe.get_ayanamsa(jd)
 
-        planets = {}
+		# --- HOUSES FIRST (SAFE, STABLE) ---
+		houses, _ = swe.houses(jd, lat, lon, b'P')
 
-        rahu_mean = swe.calc_ut(jd, swe.MEAN_NODE, FLAGS)[0][0] % 360
-        rahu_true = swe.calc_ut(jd, swe.TRUE_NODE, FLAGS)[0][0] % 360
+		cusps = {}
+		for i in range(12):
+			cusps[str(i + 1)] = (houses[i] - ayan) % 360
 
-        planets["Rahu"] = rahu_mean
-        planets["Rahu_true"] = rahu_true
-        planets["Ketu"] = (rahu_mean + 180) % 360
-        planets["Ketu_true"] = (rahu_true + 180) % 360
+		planets = {}
+		planets_retro = {}
 
-        for p, code in PLANETS.items():
-            planets[p] = swe.calc_ut(jd, code, FLAGS)[0][0] % 360
+		# --- RAHU / KETU ---
+		rahu_mean = swe.calc_ut(jd, swe.MEAN_NODE, FLAGS)[0][0] % 360
+		rahu_true = swe.calc_ut(jd, swe.TRUE_NODE, FLAGS)[0][0] % 360
 
-        houses, _ = swe.houses(jd, lat, lon, b'P')
+		planets["Rahu"] = rahu_mean
+		planets["Rahu_true"] = rahu_true
+		planets["Ketu"] = (rahu_mean + 180) % 360
+		planets["Ketu_true"] = (rahu_true + 180) % 360
 
-        cusps = {}
-        for i in range(12):
-            cusps[str(i + 1)] = (houses[i] - ayan) % 360
+		# Rahu & Ketu always retro
+		planets_retro["Rahu"] = True
+		planets_retro["Rahu_true"] = True
+		planets_retro["Ketu"] = True
+		planets_retro["Ketu_true"] = True
 
-        results[name] = {
-            "ayanamsha_value": ayan,
-            "lagna": cusps["1"],
-            "planets": planets,
-            "cusps": cusps
-        }
+		# --- PLANETS + RETRO ---
+		for p, code in PLANETS.items():
+			lon, is_retro = get_planet_lon_and_retro(jd, code, FLAGS)
+			planets[p] = lon
+			planets_retro[p] = is_retro
 
-    return results
+		results[name] = {
+			"ayanamsha_value": ayan,
+			"lagna": cusps["1"],
+			"planets": planets,
+			"planets_retro": planets_retro,
+			"cusps": cusps
+		}
+
+	return results
 
 
 
 
 def calculate_sayana(jd, lat, lon):
     planets = {}
+    planets_retro = {}
 
     for p, code in PLANETS.items():
-        planets[p] = swe.calc_ut(jd, code, swe.FLG_SWIEPH)[0][0] % 360
+        lon, is_retro = get_planet_lon_and_retro(jd, code, swe.FLG_SWIEPH)
+        planets[p] = lon
+        planets_retro[p] = is_retro
 
     houses, _ = swe.houses(jd, lat, lon, b'P')
     cusps = {str(i + 1): houses[i] % 360 for i in range(12)}
@@ -297,6 +351,7 @@ def calculate_sayana(jd, lat, lon):
         "ayanamsha_value": 0.0,
         "lagna": cusps["1"],
         "planets": planets,
+        "planets_retro": planets_retro,
         "cusps": cusps
     }
 
@@ -365,6 +420,7 @@ def calculate_and_save():
             "ayanamsha": "Lahiri",
             "lagna": ayanamsha_results["Lahiri"]["lagna"],
             "planets": ayanamsha_results["Lahiri"]["planets"],
+            "planets_retro": ayanamsha_results["Lahiri"]["planets_retro"],
             "cusps": ayanamsha_results["Lahiri"]["cusps"],
 
             "ayanamshas": ayanamsha_results
