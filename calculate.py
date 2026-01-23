@@ -224,6 +224,54 @@ def get_planet_lon_and_retro(jd, code, flags):
 
 def sanitize_filename(name):
     return re.sub(r"[^\w]+", "_", name.strip()) or "kundali"
+	
+	
+# -------------------------------------------------
+# COORDINATE CONVERSION HELPERS
+# -------------------------------------------------
+def dms_to_decimal(deg, minute, sec, direction):
+    try:
+        d = float(deg)
+        m = float(minute)
+        s = float(sec)
+    except:
+        raise ValueError("Invalid DMS numeric value")
+
+    if not (0 <= m < 60 and 0 <= s < 60):
+        raise ValueError("Minutes/Seconds must be 0–59")
+
+    val = d + (m / 60.0) + (s / 3600.0)
+
+    if direction in ("S", "W"):
+        val = -val
+
+    return round(val, 6)
+
+
+def decimal_to_dms(val, is_lat=True):
+    sign = "N" if is_lat else "E"
+    if val < 0:
+        sign = "S" if is_lat else "W"
+        val = abs(val)
+
+    d = int(val)
+    rem = (val - d) * 60
+    m = int(rem)
+    s = (rem - m) * 60
+
+    s = int(round(s))
+
+    if s >= 60:
+        s -= 60
+        m += 1
+    if m >= 60:
+        m -= 60
+        d += 1
+
+    return str(d), sign, f"{m:02d}", f"{s:02d}"
+
+	
+	
 
 def choose_output_folder():
     folder = filedialog.askdirectory()
@@ -359,8 +407,6 @@ def calculate_sayana(jd, lat, lon):
 
 
 
-
-
 def calculate_and_save():
     try:
         if not name_var.get().strip():
@@ -392,6 +438,72 @@ def calculate_and_save():
             utc.hour + utc.minute / 60 + utc.second / 3600
         )
 
+        # -------------------------------------------------
+        # DMS → DECIMAL (ALWAYS ACTIVE, RUNTIME ONLY)
+        # -------------------------------------------------
+        lat_val = dms_to_decimal(
+            lat_dms_deg.get(),
+            lat_dms_min.get(),
+            lat_dms_sec.get(),
+            lat_dms_dir.get()
+        )
+
+        lon_val = dms_to_decimal(
+            lon_dms_deg.get(),
+            lon_dms_min.get(),
+            lon_dms_sec.get(),
+            lon_dms_dir.get()
+        )
+
+        lat_sign.set("-" if lat_val < 0 else "+")
+        lon_sign.set("-" if lon_val < 0 else "+")
+
+        lat_val = abs(lat_val)
+        lon_val = abs(lon_val)
+
+        lat_deg.set(str(int(lat_val)))
+        lat_frac.set(f"{lat_val % 1:.6f}".split(".")[1])
+
+        lon_deg.set(str(int(lon_val)))
+        lon_frac.set(f"{lon_val % 1:.6f}".split(".")[1])
+
+        # GOOGLE MAPS FORMAT LATITUDE
+        lat = float(f"{lat_deg.get()}.{lat_frac.get() or '0'}")
+        if lat_sign.get() == "-":
+            lat = -lat
+
+        # GOOGLE MAPS FORMAT LONGITUDE
+        lon = float(f"{lon_deg.get()}.{lon_frac.get() or '0'}")
+        if lon_sign.get() == "-":
+            lon = -lon
+
+        ayanamsha_results = calculate_all_ayanamshas(jd, lat, lon)
+        ayanamsha_results["Sayana"] = calculate_sayana(jd, lat, lon)
+
+        data = {
+            "meta": {
+                "name": name_var.get().strip(),
+                "latitude": lat,
+                "longitude": lon,
+                "datetime_utc": utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+            },
+            "ayanamsha": "Lahiri",
+            "lagna": ayanamsha_results["Lahiri"]["lagna"],
+            "planets": ayanamsha_results["Lahiri"]["planets"],
+            "planets_retro": ayanamsha_results["Lahiri"]["planets_retro"],
+            "cusps": ayanamsha_results["Lahiri"]["cusps"],
+            "ayanamshas": ayanamsha_results
+        }
+
+        with open(save_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+
+    except Exception as e:
+        messagebox.showerror("Error", str(e))
+
+		
+		
+		
         # GOOGLE MAPS FORMAT LATITUDE
         lat = float(f"{lat_deg.get()}.{lat_frac.get() or '0'}")
         if lat_sign.get() == "-":
@@ -455,7 +567,7 @@ def clear_basic_fields():
 # -------------------------------------------------
 root = tk.Tk()
 root.title("Offline Swiss Ephemeris")
-root.geometry("820x780")
+root.geometry("820x700")
 root.configure(bg="#120404")
 root.resizable(True, True)
 
@@ -487,7 +599,7 @@ style.configure("TSeparator", background="#5c0a0a")
 # -------------------------------------------------
 # MAIN 2-COLUMN LAYOUT (LEFT = INPUTS, RIGHT = ACTIONS)
 # -------------------------------------------------
-main_frame = ttk.Frame(root, padding=16)
+main_frame = ttk.Frame(root, padding=12)
 main_frame.pack(fill="both", expand=True)
 
 left_frame = ttk.Frame(main_frame)
@@ -528,16 +640,159 @@ sec_var = tk.StringVar(value="00")
 
 
 # GOOGLE MAPS FRIENDLY LATITUDE
-# Default: +13.318833 (HOME LOCATION)
+# Default: +13.319070
 lat_sign = tk.StringVar(value="+")
 lat_deg  = tk.StringVar(value="13")
-lat_frac = tk.StringVar(value="318833")
+lat_frac = tk.StringVar(value="319070")
+
+
+
 
 # GOOGLE MAPS FRIENDLY LONGITUDE
-# Default: +77.132609 (HOME LOCATION)
+# Default: +77.132645
 lon_sign = tk.StringVar(value="+")
 lon_deg  = tk.StringVar(value="77")
-lon_frac = tk.StringVar(value="132609")
+lon_frac = tk.StringVar(value="132645")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# -------------------------------------------------
+# COORDINATE INPUT MODULE SELECTOR
+# -------------------------------------------------
+
+# -------------------------------------------------
+# MODULE 2 – DMS VARIABLES (LAT)
+# -------------------------------------------------
+
+lat_dms_deg = tk.StringVar(value="13")
+lat_dms_dir = tk.StringVar(value="N")
+lat_dms_min = tk.StringVar(value="19")
+lat_dms_sec = tk.StringVar(value="08")  # derived from 13.319070
+
+
+
+
+
+
+
+
+
+# -------------------------------------------------
+# MODULE 2 – DMS VARIABLES (LON)
+# -------------------------------------------------
+lon_dms_deg = tk.StringVar(value="77")
+lon_dms_dir = tk.StringVar(value="E")
+lon_dms_min = tk.StringVar(value="07")
+lon_dms_sec = tk.StringVar(value="57")  # derived from 77.132645
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# -------------------------------------------------
+# INTERNAL SYNC LOCK (PREVENT FEEDBACK LOOPS)
+# -------------------------------------------------
+_sync_lock = {"active": False}
+
+
+
+
+
+# -------------------------------------------------
+# LIVE SYNC: MODULE 1 ⇄ MODULE 2
+# -------------------------------------------------
+def sync_from_decimal(*args):
+    if _sync_lock["active"]:
+        return
+    try:
+        _sync_lock["active"] = True
+
+        lat_val = float(f"{lat_deg.get()}.{lat_frac.get() or '0'}")
+        if lat_sign.get() == "-":
+            lat_val = -lat_val
+
+        lon_val = float(f"{lon_deg.get()}.{lon_frac.get() or '0'}")
+        if lon_sign.get() == "-":
+            lon_val = -lon_val
+
+        d, s, m, sec = decimal_to_dms(lat_val, is_lat=True)
+        lat_dms_deg.set(d)
+        lat_dms_dir.set(s)
+        lat_dms_min.set(m)
+        lat_dms_sec.set(sec)
+
+        d, s, m, sec = decimal_to_dms(lon_val, is_lat=False)
+        lon_dms_deg.set(d)
+        lon_dms_dir.set(s)
+        lon_dms_min.set(m)
+        lon_dms_sec.set(sec)
+
+    finally:
+        _sync_lock["active"] = False
+
+
+def sync_from_dms(*args):
+    if _sync_lock["active"]:
+        return
+    try:
+        _sync_lock["active"] = True
+
+        lat_val = dms_to_decimal(
+            lat_dms_deg.get(), lat_dms_min.get(), lat_dms_sec.get(), lat_dms_dir.get()
+        )
+        lon_val = dms_to_decimal(
+            lon_dms_deg.get(), lon_dms_min.get(), lon_dms_sec.get(), lon_dms_dir.get()
+        )
+
+        lat_sign.set("-" if lat_val < 0 else "+")
+        lon_sign.set("-" if lon_val < 0 else "+")
+
+        lat_val = abs(lat_val)
+        lon_val = abs(lon_val)
+
+        lat_deg.set(str(int(lat_val)))
+        lat_frac.set(f"{lat_val % 1:.6f}".split(".")[1])
+
+        lon_deg.set(str(int(lon_val)))
+        lon_frac.set(f"{lon_val % 1:.6f}".split(".")[1])
+
+    finally:
+        _sync_lock["active"] = False
+
+
+
+
+
 
 
 
@@ -555,15 +810,32 @@ dst_var = tk.StringVar(value="0")
 
 
 
-
-
-
-
 ayan_vars = {
     "Lahiri": tk.IntVar(value=1),
     "KP New": tk.IntVar(value=0),
     "Raman": tk.IntVar(value=0)
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # HEADER
 ttk.Label(left_frame, text="OFFLINE SWISS EPHEMERIS", font=TITLE_FONT).pack(pady=8)
@@ -595,7 +867,7 @@ e_name.bind("<Return>", focus_dd)
 
 
 # DATE
-ttk.Label(frame, text="Date (DD  MM  YYYY)").pack(anchor="w", pady=(10,4))
+ttk.Label(frame, text="Date (DD  MM  YYYY)").pack(anchor="w", pady=(6,4))
 df = ttk.Frame(frame); df.pack(anchor="w")
 e_dd = ttk.Entry(df, width=6, textvariable=dd_var)
 e_mm = ttk.Entry(df, width=6, textvariable=mm_var)
@@ -629,7 +901,6 @@ e_mm.bind("<KeyRelease>", lambda e: smart_month_jump(e, mm_var, e_yy))
 e_yy.bind("<KeyRelease>", lambda e: jump_if_complete(yyyy_var, e_hh, 4, "yy"))
 
 e_hh.bind("<KeyRelease>", lambda e: smart_hour_jump(e, hh_var, e_mn))
-e_mn.bind("<KeyRelease>", lambda e: smart_minute_jump(e, min_var, e_lat_deg))
 
 
 
@@ -660,30 +931,176 @@ ttk.Entry(uf, width=6, textvariable=dst_var).pack(side="left")
 # - | 77 | 13      → -77.13
 # -------------------------------------------------
 
-# LATITUDE
-ttk.Label(frame, text="Latitude (+ / −   Deg   Fraction)").pack(anchor="w", pady=(10,4))
-lf = ttk.Frame(frame); lf.pack(anchor="w")
 
-e_lat_sign = ttk.Entry(lf, width=4, textvariable=lat_sign, justify="center")
-e_lat_deg  = ttk.Entry(lf, width=8, textvariable=lat_deg)
-e_lat_frac = ttk.Entry(lf, width=12, textvariable=lat_frac)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# =================================================
+# DECIMAL COORDINATES
+# =================================================
+module1 = ttk.Frame(frame)
+module1.pack(anchor="w", fill="x", pady=(4,6))
+
+# Latitude (Module 1)
+ttk.Label(module1, text="Latitude (+ / −   Deg   Fraction)").pack(anchor="w")
+m1_lat = ttk.Frame(module1)
+m1_lat.pack(anchor="w")
+
+
+
+e_lat_sign = ttk.Entry(m1_lat, width=4, textvariable=lat_sign, justify="center")
+e_lat_deg  = ttk.Entry(m1_lat, width=8, textvariable=lat_deg)
+e_lat_frac = ttk.Entry(m1_lat, width=12, textvariable=lat_frac)
 
 e_lat_sign.pack(side="left", padx=4)
 e_lat_deg.pack(side="left", padx=4)
 e_lat_frac.pack(side="left", padx=4)
 
 
-# LONGITUDE
-ttk.Label(frame, text="Longitude (+ / −   Deg   Fraction)").pack(anchor="w", pady=(10,4))
-lof = ttk.Frame(frame); lof.pack(anchor="w")
 
-e_lon_sign = ttk.Entry(lof, width=4, textvariable=lon_sign, justify="center")
-e_lon_deg  = ttk.Entry(lof, width=8, textvariable=lon_deg)
-e_lon_frac = ttk.Entry(lof, width=12, textvariable=lon_frac)
+
+
+
+
+
+# Longitude (Module 1)
+ttk.Label(module1, text="Longitude (+ / −   Deg   Fraction)").pack(anchor="w", pady=(6,0))
+m1_lon = ttk.Frame(module1)
+m1_lon.pack(anchor="w")
+
+
+
+
+e_lon_sign = ttk.Entry(m1_lon, width=4, textvariable=lon_sign, justify="center")
+e_lon_deg  = ttk.Entry(m1_lon, width=8, textvariable=lon_deg)
+e_lon_frac = ttk.Entry(m1_lon, width=12, textvariable=lon_frac)
 
 e_lon_sign.pack(side="left", padx=4)
 e_lon_deg.pack(side="left", padx=4)
 e_lon_frac.pack(side="left", padx=4)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# =================================================
+# DEGREE / DIRECTION / MIN / SEC
+# =================================================
+module2 = ttk.Frame(frame)
+module2.pack(anchor="w", fill="x", pady=(4,6))
+
+# Latitude (Module 2)
+ttk.Label(module2, text="Latitude (Deg  Dir  Min  Sec)").pack(anchor="w")
+m2_lat = ttk.Frame(module2)
+m2_lat.pack(anchor="w")
+
+
+
+
+
+lat2_deg = ttk.Entry(m2_lat, width=8, textvariable=lat_dms_deg)
+lat2_dir = ttk.Entry(m2_lat, width=4, textvariable=lat_dms_dir, justify="center")
+lat2_min = ttk.Entry(m2_lat, width=6, textvariable=lat_dms_min)
+lat2_sec = ttk.Entry(m2_lat, width=6, textvariable=lat_dms_sec)
+
+lat2_deg.pack(side="left", padx=4)
+lat2_dir.pack(side="left", padx=4)
+lat2_min.pack(side="left", padx=4)
+lat2_sec.pack(side="left", padx=4)
+
+
+
+
+
+
+
+
+
+
+
+# Longitude (Module 2)
+ttk.Label(module2, text="Longitude (Deg  Dir  Min  Sec)").pack(anchor="w", pady=(6,0))
+m2_lon = ttk.Frame(module2)
+m2_lon.pack(anchor="w")
+
+
+
+
+
+lon2_deg = ttk.Entry(m2_lon, width=8, textvariable=lon_dms_deg)
+lon2_dir = ttk.Entry(m2_lon, width=4, textvariable=lon_dms_dir, justify="center")
+lon2_min = ttk.Entry(m2_lon, width=6, textvariable=lon_dms_min)
+lon2_sec = ttk.Entry(m2_lon, width=6, textvariable=lon_dms_sec)
+
+lon2_deg.pack(side="left", padx=4)
+lon2_dir.pack(side="left", padx=4)
+lon2_min.pack(side="left", padx=4)
+lon2_sec.pack(side="left", padx=4)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -712,7 +1129,7 @@ ttk.Label(
     right_frame,
     text="Actions",
     font=("Segoe UI Semibold", 18)
-).pack(pady=(4,16))
+).pack(pady=(4,10))
 
 ttk.Button(
     right_frame,
@@ -729,7 +1146,7 @@ out_label = ttk.Label(
 )
 out_label.pack(pady=8)
 
-ttk.Separator(right_frame).pack(fill="x", pady=14)
+ttk.Separator(right_frame).pack(fill="x", pady=10)
 
 
 ttk.Button(
@@ -747,7 +1164,7 @@ ttk.Button(
     text="Clear Name / Date / Time",
     command=clear_basic_fields,
     width=22
-).pack(pady=10)
+).pack(pady=6)
     
 
 
@@ -757,6 +1174,38 @@ ttk.Button(
     command=open_output_folder,
     width=22
 ).pack(pady=6)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# -------------------------------------------------
+# ACTIVATE LIVE SYNC (AFTER UI IS READY)
+# -------------------------------------------------
+for v in (lat_deg, lat_frac, lat_sign, lon_deg, lon_frac, lon_sign):
+    v.trace_add("write", sync_from_decimal)
+
+for v in (
+    lat_dms_deg, lat_dms_dir, lat_dms_min, lat_dms_sec,
+    lon_dms_deg, lon_dms_dir, lon_dms_min, lon_dms_sec
+):
+    v.trace_add("write", sync_from_dms)
+
+
+
+
+
 
 
 
