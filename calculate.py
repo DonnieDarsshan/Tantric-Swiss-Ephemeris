@@ -181,15 +181,15 @@ def smart_minute_jump(event, var, next_widget):
     elif len(val) >= 2:
         next_widget.focus()
 
-	
-	
-	
-	
-	
-	
-	
-	
-	
+    
+    
+    
+    
+    
+    
+    
+    
+    
 
 
 # -------------------------------------------------
@@ -223,9 +223,10 @@ def get_planet_lon_and_retro(jd, code, flags):
 
 
 def sanitize_filename(name):
-    return re.sub(r"[^\w]+", "_", name.strip()) or "kundali"
-	
-	
+    # allow letters, numbers, dash, space and ~
+    return re.sub(r"[^\w\-\~ ]+", "", name.strip()) or "kundali"
+    
+    
 # -------------------------------------------------
 # COORDINATE CONVERSION HELPERS
 # -------------------------------------------------
@@ -246,6 +247,90 @@ def dms_to_decimal(deg, minute, sec, direction):
         val = -val
 
     return round(val, 6)
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+# -------------------------------------------------
+# HORARY HELPERS (FIXED KP ENGINE)
+# -------------------------------------------------
+def horary_to_longitude(num):
+    """
+    True KP Horary (1–249)
+
+    Based on:
+    27 Nakshatras (13°20' each)
+    Each divided into 9 unequal subs
+    Total = 249 divisions
+    """
+
+    num = int(num)
+
+    if not (1 <= num <= 249):
+        raise ValueError("Horary number must be between 1 and 249")
+
+    # Vimshottari order and years
+    DASHA = [
+        ("Ketu", 7),
+        ("Venus", 20),
+        ("Sun", 6),
+        ("Moon", 10),
+        ("Mars", 7),
+        ("Rahu", 18),
+        ("Jupiter", 16),
+        ("Saturn", 19),
+        ("Mercury", 17),
+    ]
+
+    nak_length = 13 + 20/60  # 13°20'
+    total_years = 120
+
+    counter = 0
+
+    for nak in range(27):
+
+        # Nakshatra starting longitude
+        nak_start = nak * nak_length
+
+        # Determine starting dasha index
+        start_index = nak % 9
+
+        sub_start = 0.0
+
+        for i in range(9):
+
+            counter += 1
+
+            lord_index = (start_index + i) % 9
+            years = DASHA[lord_index][1]
+
+            sub_size = nak_length * (years / total_years)
+
+            if counter == num:
+                return (nak_start + sub_start) % 360
+
+            sub_start += sub_size
+
+    raise ValueError("Invalid horary number")
+
+
+
+
+
+
+
 
 
 def decimal_to_dms(val, is_lat=True):
@@ -270,8 +355,8 @@ def decimal_to_dms(val, is_lat=True):
 
     return str(d), sign, f"{m:02d}", f"{s:02d}"
 
-	
-	
+    
+    
 
 def choose_output_folder():
     folder = filedialog.askdirectory()
@@ -329,56 +414,72 @@ def get_ayanamsha():
 
 
 
-
-
-
 def calculate_all_ayanamshas(jd, lat, lon):
-	results = {}
 
-	for name, sid_mode in AYANAMSHA_MAP.items():
-		swe.set_sid_mode(sid_mode)
-		ayan = swe.get_ayanamsa(jd)
+    results = {}
 
-		# --- HOUSES FIRST (SAFE, STABLE) ---
-		houses, _ = swe.houses(jd, lat, lon, b'P')
 
-		cusps = {}
-		for i in range(12):
-			cusps[str(i + 1)] = (houses[i] - ayan) % 360
 
-		planets = {}
-		planets_retro = {}
 
-		# --- RAHU / KETU ---
-		rahu_mean = swe.calc_ut(jd, swe.MEAN_NODE, FLAGS)[0][0] % 360
-		rahu_true = swe.calc_ut(jd, swe.TRUE_NODE, FLAGS)[0][0] % 360
 
-		planets["Rahu"] = rahu_mean
-		planets["Rahu_true"] = rahu_true
-		planets["Ketu"] = (rahu_mean + 180) % 360
-		planets["Ketu_true"] = (rahu_true + 180) % 360
 
-		# Rahu & Ketu always retro
-		planets_retro["Rahu"] = True
-		planets_retro["Rahu_true"] = True
-		planets_retro["Ketu"] = True
-		planets_retro["Ketu_true"] = True
+    for name, sid_mode in AYANAMSHA_MAP.items():
 
-		# --- PLANETS + RETRO ---
-		for p, code in PLANETS.items():
-			lon, is_retro = get_planet_lon_and_retro(jd, code, FLAGS)
-			planets[p] = lon
-			planets_retro[p] = is_retro
+        swe.set_sid_mode(sid_mode)
 
-		results[name] = {
-			"ayanamsha_value": ayan,
-			"lagna": cusps["1"],
-			"planets": planets,
-			"planets_retro": planets_retro,
-			"cusps": cusps
-		}
+        ayan = swe.get_ayanamsa(jd)
 
-	return results
+        houses, _ = swe.houses(jd, lat, lon, b'P')
+
+        cusps = {}
+        for i in range(12):
+            cusps[str(i + 1)] = (houses[i] - ayan) % 360
+                    
+                    
+            
+            
+            
+
+        planets = {}
+        planets_retro = {}
+
+        
+        
+        
+        
+        
+
+        for p, code in PLANETS.items():
+            lon_p, is_retro = get_planet_lon_and_retro(jd, code, FLAGS)
+            
+            
+            planets[p] = lon_p
+            planets_retro[p] = is_retro
+            
+        planets["Ketu"] = (planets["Rahu"] + 180) % 360
+        planets["Ketu_true"] = (planets["Rahu_true"] + 180) % 360
+
+        planets_retro["Ketu"] = True
+        planets_retro["Ketu_true"] = True
+
+
+
+        results[name] = {
+            "ayanamsha_value": ayan,
+            "lagna": cusps["1"],
+            "planets": planets,
+            "planets_retro": planets_retro,
+            "cusps": cusps
+        }
+
+    return results
+
+
+
+
+
+
+
 
 
 
@@ -388,7 +489,10 @@ def calculate_sayana(jd, lat, lon):
     planets_retro = {}
 
     for p, code in PLANETS.items():
-        lon, is_retro = get_planet_lon_and_retro(jd, code, swe.FLG_SWIEPH)
+        lon, speed = swe.calc_ut(jd, code, swe.FLG_SWIEPH)[0][0:2]
+        lon = lon % 360
+        is_retro = speed < 0
+
         planets[p] = lon
         planets_retro[p] = is_retro
 
@@ -407,10 +511,56 @@ def calculate_sayana(jd, lat, lon):
 
 
 
+
+
+
+
+
+
+
+
+
+
+# -------------------------------------------------
+# HORARY CALCULATION
+# -------------------------------------------------
+def calculate_horary(jd, lat, lon, number):
+    results = calculate_all_ayanamshas(jd, lat, lon)
+    horary_lon = horary_to_longitude(number)
+
+    base_style = "KP New" if "KP New" in results else "Lahiri"
+    
+    old_lagna = results[base_style]["lagna"]
+    shift = (horary_lon - old_lagna) % 360
+
+    for name in results:
+        new_cusps = {}
+        for k, v in results[name]["cusps"].items():
+            new_cusps[k] = (v + shift) % 360
+        
+        results[name]["lagna"] = horary_lon
+        results[name]["cusps"] = new_cusps
+
+    return results
+
+
+
+
+
+
+
+
 def calculate_and_save():
     try:
+        
+        # -------------------------------------------------
+        # AUTO NAME IF EMPTY
+        # -------------------------------------------------
         if not name_var.get().strip():
-            raise ValueError("Enter person name")
+            auto_name = datetime.now().strftime("%Y-%m-%d ~~ %H-%M-%S")
+            name_var.set(auto_name)
+                
+        
 
         if not settings.get("output_dir"):
             folder = filedialog.askdirectory()
@@ -423,10 +573,23 @@ def calculate_and_save():
         filename = sanitize_filename(name_var.get()) + ".json"
         save_path = os.path.join(settings["output_dir"], filename)
 
-        dt = datetime(
-            int(yyyy_var.get()), int(mm_var.get()), int(dd_var.get()),
-            int(hh_var.get()), int(min_var.get()), int(sec_var.get())
-        )
+        
+        # -------------------------------------------------
+        # DATETIME (NATAL OR HORARY)
+        # -------------------------------------------------
+        if horary_mode.get():
+            dt = datetime.now().replace(microsecond=0)
+        else:
+            dt = datetime(
+                int(yyyy_var.get()),
+                int(mm_var.get()),
+                int(dd_var.get()),
+                int(hh_var.get()),
+                int(min_var.get()),
+                int(sec_var.get())
+            )
+        
+        
 
         sign = -1 if tz_sign.get() == "-" else 1
         offset = sign * (int(tz_h.get()) * 60 + int(tz_m.get()))
@@ -467,43 +630,9 @@ def calculate_and_save():
         lon_deg.set(str(int(lon_val)))
         lon_frac.set(f"{lon_val % 1:.6f}".split(".")[1])
 
-        # GOOGLE MAPS FORMAT LATITUDE
-        lat = float(f"{lat_deg.get()}.{lat_frac.get() or '0'}")
-        if lat_sign.get() == "-":
-            lat = -lat
 
-        # GOOGLE MAPS FORMAT LONGITUDE
-        lon = float(f"{lon_deg.get()}.{lon_frac.get() or '0'}")
-        if lon_sign.get() == "-":
-            lon = -lon
 
-        ayanamsha_results = calculate_all_ayanamshas(jd, lat, lon)
-        ayanamsha_results["Sayana"] = calculate_sayana(jd, lat, lon)
-
-        data = {
-            "meta": {
-                "name": name_var.get().strip(),
-                "latitude": lat,
-                "longitude": lon,
-                "datetime_utc": utc.strftime("%Y-%m-%dT%H:%M:%SZ")
-            },
-            "ayanamsha": "Lahiri",
-            "lagna": ayanamsha_results["Lahiri"]["lagna"],
-            "planets": ayanamsha_results["Lahiri"]["planets"],
-            "planets_retro": ayanamsha_results["Lahiri"]["planets_retro"],
-            "cusps": ayanamsha_results["Lahiri"]["cusps"],
-            "ayanamshas": ayanamsha_results
-        }
-
-        with open(save_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
-
-    except Exception as e:
-        messagebox.showerror("Error", str(e))
-
-		
-		
-		
+        
         # GOOGLE MAPS FORMAT LATITUDE
         lat = float(f"{lat_deg.get()}.{lat_frac.get() or '0'}")
         if lat_sign.get() == "-":
@@ -518,8 +647,22 @@ def calculate_and_save():
 
 
 
-        ayanamsha_results = calculate_all_ayanamshas(jd, lat, lon)
+        # Check if we are in Horary Mode or Natal Mode
+        if horary_mode.get():
+            try:
+                h_num = int(horary_number.get())
+                # Use the specialized horary calculator
+                ayanamsha_results = calculate_horary(jd, lat, lon, h_num)
+            except ValueError:
+                raise ValueError("Please enter a valid Horary Number (1-249)")
+        else:
+            # Standard Natal calculation
+            ayanamsha_results = calculate_all_ayanamshas(jd, lat, lon)
+
+        # Sayana (Tropical) is always calculated for reference
         ayanamsha_results["Sayana"] = calculate_sayana(jd, lat, lon)
+        
+        
 
         data = {
             "meta": {
@@ -589,7 +732,22 @@ style.configure("TEntry", fieldbackground="#1a0606", foreground="#f5eaea", inser
 style.configure("TButton", background="#5c0a0a", foreground="#ffecec", padding=8, font=APP_FONT)
 style.map("TButton", background=[("active", "#8b0f0f")])
 style.configure("TLabel", background="#120404", foreground="#f5eaea", font=APP_FONT)
-style.configure("TCheckbutton", background="#120404", foreground="#f5eaea", font=APP_FONT)
+
+style.configure(
+    "TCheckbutton",
+    background="#120404",
+    foreground="#f5eaea",
+    font=APP_FONT,
+    indicatorcolor="#5c0a0a",
+    indicatordiameter=14
+)
+
+style.map(
+    "TCheckbutton",
+    background=[("active", "#120404"), ("selected", "#120404")],
+    foreground=[("active", "#f5eaea")]
+)
+
 style.configure("TSeparator", background="#5c0a0a")
 
 
@@ -626,6 +784,12 @@ frame = left_frame
 
 # VARIABLES
 name_var = tk.StringVar()
+
+# -------------------------------------------------
+# HORARY MODE
+# -------------------------------------------------
+horary_mode = tk.IntVar(value=0)
+horary_number = tk.StringVar(value="1")
 
 # DATE
 dd_var = tk.StringVar()
@@ -852,6 +1016,56 @@ def force_uppercase_name(*args):
 name_var.trace_add("write", force_uppercase_name)
 
 e_name.pack(fill="x", pady=4)
+
+
+
+# -------------------------------------------------
+# HORARY INPUT
+# -------------------------------------------------
+ttk.Checkbutton(
+    left_frame,
+    text="Horary Mode (KP 1–249)",
+    variable=horary_mode
+).pack(anchor="w", pady=(8,2))
+
+hf = ttk.Frame(left_frame)
+hf.pack(anchor="w")
+
+ttk.Label(hf, text="Horary Number").pack(side="left", padx=(0,6))
+
+e_horary = ttk.Entry(hf, width=8, textvariable=horary_number)
+e_horary.pack(side="left")
+
+
+
+# initially disabled
+e_horary.configure(state="disabled")
+
+def toggle_horary_mode():
+
+    if horary_mode.get():
+
+        e_horary.configure(state="normal")
+
+        # ---------------------------------
+        # AUTO SYNC CURRENT LOCAL DATE/TIME
+        # ---------------------------------
+        now = datetime.now()
+
+        dd_var.set(f"{now.day:02d}")
+        mm_var.set(f"{now.month:02d}")
+        yyyy_var.set(str(now.year))
+
+        hh_var.set(f"{now.hour:02d}")
+        min_var.set(f"{now.minute:02d}")
+        sec_var.set(f"{now.second:02d}")
+
+    else:
+        e_horary.configure(state="disabled")
+
+horary_mode.trace_add("write", lambda *a: toggle_horary_mode())
+
+
 
 # AUTO FOCUS ON APP START
 root.after(200, lambda: e_name.focus())
@@ -1176,7 +1390,31 @@ ttk.Button(
 ).pack(pady=6)
 
 
+# -------------------------------------------------
+# FILL CURRENT TIME (HORARY)
+# -------------------------------------------------
+def fill_current_time():
 
+    now = datetime.now()
+
+    dd_var.set(f"{now.day:02d}")
+    mm_var.set(f"{now.month:02d}")
+    yyyy_var.set(str(now.year))
+
+    hh_var.set(f"{now.hour:02d}")
+    min_var.set(f"{now.minute:02d}")
+    sec_var.set(f"{now.second:02d}")
+
+    # auto name if empty
+    if not name_var.get().strip():
+        name_var.set(now.strftime("%Y-%m-%d ~~ %H-%M-%S"))
+
+ttk.Button(
+    right_frame,
+    text="Fill Current Time",
+    command=fill_current_time,
+    width=22
+).pack(pady=6)
 
 
 
