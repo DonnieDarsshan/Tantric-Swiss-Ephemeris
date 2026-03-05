@@ -6,7 +6,14 @@ Open CMD command from the location where calculate.py is located & run this comm
 
 
 
+
+
 If we want to include .se1 file within EXE file then use the below command in CMD
+
+
+
+
+
 
 
 
@@ -22,6 +29,53 @@ calculate.py
 
 
 
+
+G:\QB QB QB QB\HTML TOOLS\70  JSON CREATOR\EXE CREATOR>python -m pip install pyinstaller
+
+INSTALLING PYINSTALLER CMD
+
+python -m pip install pyinstaller
+
+
+
+python -m pip install pyswisseph
+
+
+
+
+
+
+
+python -m PyInstaller --onefile --noconsole ^
+--hidden-import swisseph ^
+--collect-all swisseph ^
+--add-data "seas_18.se1;." ^
+--add-data "semo_18.se1;." ^
+--add-data "sepl_18.se1;." ^
+calculate.py
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+python -m PyInstaller ^
+--onefile ^
+--noconsole ^
+--clean ^
+--name "OfflineSwissEphemeris" ^
+--hidden-import swisseph ^
+--collect-all swisseph ^
+--add-data "ephe;ephe" ^
+calculate.py
 
 
 
