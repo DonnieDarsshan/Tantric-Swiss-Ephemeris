@@ -199,25 +199,18 @@ def smart_minute_jump(event, var, next_widget):
 
 def get_planet_lon_and_retro(jd, code, flags):
     """
-    INDIAN / VEDIC RETRO (VAKRI)
-
-    Rule used by Indian astrology apps:
-    If SIDEREAL longitude today < SIDEREAL longitude yesterday
-    → planet is Vakri (Retrograde)
+    MATHEMATICALLY PERFECT RETROGRADE
+    Using instantaneous longitudinal speed from Swiss Ephemeris.
     """
-
-    # Today's sidereal longitude
-    lon_today = swe.calc_ut(jd, code, flags)[0][0] % 360
-
-    # Yesterday's sidereal longitude
-    lon_yesterday = swe.calc_ut(jd - 1.0, code, flags)[0][0] % 360
-
-    # Normalize movement (handle 360° wrap safely)
-    delta = (lon_today - lon_yesterday + 360) % 360
-
-    # If movement is backward in zodiac → Vakri
-    is_retro = delta > 180
-
+    # swe.calc_ut returns: ((lon, lat, dist, speed_lon, speed_lat, speed_dist), ret_flag)
+    calc_result = swe.calc_ut(jd, code, flags)[0]
+    
+    lon_today = calc_result[0] % 360
+    speed = calc_result[3]  # Instantaneous speed in longitude
+    
+    # True Vakri is when instantaneous speed is negative
+    is_retro = speed < 0
+    
     return lon_today, is_retro
 
 
@@ -269,63 +262,45 @@ def dms_to_decimal(deg, minute, sec, direction):
 def horary_to_longitude(num):
     """
     True KP Horary (1–249)
-
-    Based on:
-    27 Nakshatras (13°20' each)
-    Each divided into 9 unequal subs
-    Total = 249 divisions
+    Fixes the 243 vs 249 bug by precisely splitting subs that cross 30° sign boundaries
+    using exact integer math (eliminating floating-point precision errors).
     """
-
     num = int(num)
-
     if not (1 <= num <= 249):
         raise ValueError("Horary number must be between 1 and 249")
 
-    # Vimshottari order and years
-    DASHA = [
-        ("Ketu", 7),
-        ("Venus", 20),
-        ("Sun", 6),
-        ("Moon", 10),
-        ("Mars", 7),
-        ("Rahu", 18),
-        ("Jupiter", 16),
-        ("Saturn", 19),
-        ("Mercury", 17),
-    ]
-
-    nak_length = 13 + 20/60  # 13°20'
-    total_years = 120
-
-    counter = 0
-
+    # Dasha years in exact Vimshottari order starting from Ketu
+    DASHA = [7, 20, 6, 10, 7, 18, 16, 19, 17]
+    
+    subs = []
+    current_val = 0  # We calculate in units of 1/9th of a degree
+    
     for nak in range(27):
-
-        # Nakshatra starting longitude
-        nak_start = nak * nak_length
-
-        # Determine starting dasha index
         start_index = nak % 9
-
-        sub_start = 0.0
-
         for i in range(9):
-
-            counter += 1
-
             lord_index = (start_index + i) % 9
-            years = DASHA[lord_index][1]
+            years = DASHA[lord_index]
+            
+            end_val = current_val + years
+            
+            # Sign boundaries occur every 30 degrees. 
+            # In 1/9th degree units, 30° * 9 = 270
+            sign_start = current_val // 270
+            sign_end = (end_val - 1) // 270
+            
+            if sign_start != sign_end:
+                # Sub crosses a sign boundary -> Split it into two!
+                boundary_val = sign_end * 270
+                subs.append(current_val / 9.0)       # First part
+                subs.append(boundary_val / 9.0)      # Second part
+            else:
+                # Fits entirely within the current sign
+                subs.append(current_val / 9.0)
+                
+            current_val = end_val
 
-            sub_size = nak_length * (years / total_years)
-
-            if counter == num:
-                return (nak_start + sub_start) % 360
-
-            sub_start += sub_size
-
-    raise ValueError("Invalid horary number")
-
-
+    # Return the starting longitude of the requested sub (0-indexed)
+    return subs[num - 1]
 
 
 
@@ -520,30 +495,68 @@ def calculate_sayana(jd, lat, lon):
 
 
 
-
 # -------------------------------------------------
-# HORARY CALCULATION
+# HORARY CALCULATION (TRUE PLACIDUS SOLVER)
 # -------------------------------------------------
 def calculate_horary(jd, lat, lon, number):
-    results = calculate_all_ayanamshas(jd, lat, lon)
-    horary_lon = horary_to_longitude(number)
-
-    base_style = "KP New" if "KP New" in results else "Lahiri"
+    # Get the target starting longitude for the horary number
+    target_lon = horary_to_longitude(number)
     
-    old_lagna = results[base_style]["lagna"]
-    shift = (horary_lon - old_lagna) % 360
+    results = {}
 
-    for name in results:
-        new_cusps = {}
-        for k, v in results[name]["cusps"].items():
-            new_cusps[k] = (v + shift) % 360
+    for name, sid_mode in AYANAMSHA_MAP.items():
+        swe.set_sid_mode(sid_mode)
         
-        results[name]["lagna"] = horary_lon
-        results[name]["cusps"] = new_cusps
+        # --- ITERATIVE SOLVER FOR HORARY ASCENDANT ---
+        # We must find the exact time (JD) today when the target_lon rises.
+        temp_jd = jd
+        
+        for _ in range(10):  # Usually converges in 3-4 iterations
+            ayan = swe.get_ayanamsa(temp_jd)
+            houses, _ = swe.houses(temp_jd, lat, lon, b'P')
+            current_lagna = (houses[0] - ayan) % 360
+            
+            # Calculate distance to target
+            diff = (target_lon - current_lagna) % 360
+            if diff > 180:
+                diff -= 360  # Take the shortest path
+                
+            # If accuracy is within ~0.36 arc-seconds, we found the exact time
+            if abs(diff) < 0.0001:
+                break
+                
+            # Shift the time. 1 degree of Ascendant shift ≈ 4 minutes (1/360 of a sidereal day)
+            temp_jd += (diff / 360.0) * 0.99726957 
+        
+        # Now that temp_jd is locked onto the exact rising time, grab True Placidus cusps
+        ayan = swe.get_ayanamsa(temp_jd)
+        houses, _ = swe.houses(temp_jd, lat, lon, b'P')
+        cusps = {str(i + 1): (houses[i] - ayan) % 360 for i in range(12)}
+        
+        # --- PLANETS (CAST FOR MOMENT OF JUDGMENT) ---
+        # KP Rule: Cusps change to horary time, but Planets remain at current time (jd)
+        planets = {}
+        planets_retro = {}
+        
+        for p, code in PLANETS.items():
+            lon_p, is_retro = get_planet_lon_and_retro(jd, code, FLAGS)
+            planets[p] = lon_p
+            planets_retro[p] = is_retro
+            
+        planets["Ketu"] = (planets["Rahu"] + 180) % 360
+        planets["Ketu_true"] = (planets["Rahu_true"] + 180) % 360
+        planets_retro["Ketu"] = True
+        planets_retro["Ketu_true"] = True
+
+        results[name] = {
+            "ayanamsha_value": ayan,
+            "lagna": target_lon,
+            "planets": planets,
+            "planets_retro": planets_retro,
+            "cusps": cusps
+        }
 
     return results
-
-
 
 
 
