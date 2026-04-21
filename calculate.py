@@ -1,4 +1,3 @@
-# =========================================================
 # OFFLINE SWISS EPHEMERIS – TANTRIC DARK MODE (FINAL STABLE)
 # =========================================================
 import os, json, re
@@ -15,8 +14,10 @@ from tkinter import ttk, messagebox, filedialog
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 def get_ephe_path():
     if hasattr(sys, "_MEIPASS"):
-        return sys._MEIPASS
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "ephe")
+        # Looks directly in the root of the extracted .exe
+        return sys._MEIPASS  
+    # Looks directly in the same folder as calculate.py for normal runs
+    return os.path.dirname(os.path.abspath(__file__))
 
 import sys
 EPHE_PATH = get_ephe_path()
@@ -57,7 +58,7 @@ if hasattr(swe, "SIDM_USHASHASHI"):
 # SWISS EPHEMERIS
 # -------------------------------------------------
 swe.set_ephe_path(EPHE_PATH)
-FLAGS = swe.FLG_SWIEPH | swe.FLG_SIDEREAL
+FLAGS = swe.FLG_SWIEPH | swe.FLG_SIDEREAL | swe.FLG_SPEED
 
 PLANETS = {
     "Surya": swe.SUN,
@@ -458,18 +459,26 @@ def calculate_all_ayanamshas(jd, lat, lon):
 
 
 
-
 def calculate_sayana(jd, lat, lon):
     planets = {}
     planets_retro = {}
+    
+    # Require speed flag for Sayana calculations
+    flags_sayana = swe.FLG_SWIEPH | swe.FLG_SPEED 
 
     for p, code in PLANETS.items():
-        lon, speed = swe.calc_ut(jd, code, swe.FLG_SWIEPH)[0][0:2]
-        lon = lon % 360
-        is_retro = speed < 0
+        calc_result = swe.calc_ut(jd, code, flags_sayana)[0]
+        lon_p = calc_result[0] % 360
+        speed = calc_result[3]  # Speed is at index 3, not index 1
 
-        planets[p] = lon
-        planets_retro[p] = is_retro
+        planets[p] = lon_p
+        planets_retro[p] = speed < 0
+
+    # Ensure Sayana Ketu is populated properly 
+    planets["Ketu"] = (planets["Rahu"] + 180) % 360
+    planets["Ketu_true"] = (planets["Rahu_true"] + 180) % 360
+    planets_retro["Ketu"] = True
+    planets_retro["Ketu_true"] = planets_retro["Rahu_true"]
 
     houses, _ = swe.houses(jd, lat, lon, b'P')
     cusps = {str(i + 1): houses[i] % 360 for i in range(12)}
